@@ -1,0 +1,7 @@
+{
+  "name": "bizneo-funcionarios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Relatório de funcionários ativos (ID + nome completo) via API da Bizneo HR - frontend estático + Netlify Function",
+  "engines": { "node": ">=18" }
+}

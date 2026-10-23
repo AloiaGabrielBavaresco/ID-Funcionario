@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Funcionários ativos - Bizneo</title>
+<style>
+  :root {
+    --azul: #00305b; --laranja: #de7a0d; --borda: #e1e0d9; --fundo: #f9f9f7;
+    --texto: #0b0b0b; --mudo: #6b6a66; --erro: #a12727;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: var(--fundo); color: var(--texto); }
+  header { background: var(--azul); color: #fff; padding: 18px 28px; font-weight: 700; font-size: 18px; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 20px 60px; }
+  .painel { background: #fff; border: 1px solid var(--borda); border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(11,11,11,.06); }
+  .barra { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #52514e; }
+  input[type="password"], input[type="text"] { padding: 9px 11px; border: 1px solid #c3c2b7; border-radius: 8px; font-size: 14px; min-width: 240px; }
+  input:focus { outline: 2px solid var(--laranja); outline-offset: 1px; }
+  button { padding: 9px 16px; border-radius: 8px; border: 1px solid transparent; font-weight: 600; font-size: 14px; cursor: pointer; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .primario { background: var(--laranja); color: #fff; }
+  .secundario { background: #eceef1; color: var(--texto); border-color: var(--borda); }
+  .mudo { color: var(--mudo); font-size: 13px; }
+  .erro { background: rgba(208,59,59,.1); color: var(--erro); border: 1px solid rgba(208,59,59,.25); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 14px; }
+  th { text-align: left; padding: 10px 12px; background: #f2f1ee; border-bottom: 1px solid var(--borda); color: #52514e; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--borda); }
+  tbody tr:nth-child(even) { background: #fafaf8; }
+  .resumo { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+  .acoes { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+<header>Funcionários ativos — Bizneo HR</header>
+
+<main>
+  <div class="painel">
+    <div class="barra">
+      <div>
+        <label for="senha">Senha de acesso</label>
+        <input type="password" id="senha" autocomplete="current-password" />
+      </div>
+      <button class="primario" id="botao-gerar">Gerar relatório</button>
+    </div>
+    <p class="mudo" style="margin:12px 0 0;">Busca na Bizneo os funcionários ativos e mostra o ID e o nome completo de cada um.</p>
+    <div id="area-erro"></div>
+  </div>
+
+  <div class="painel" id="painel-resultado" style="display:none;">
+    <div class="resumo">
+      <div>
+        <strong id="total-ativos">0</strong> funcionários ativos
+        <div class="mudo" id="info-geracao"></div>
+      </div>
+      <div class="acoes">
+        <input type="text" id="busca" placeholder="Filtrar por ID ou nome..." />
+        <button class="secundario" id="botao-csv">Baixar CSV</button>
+        <button class="secundario" id="botao-xlsx">Baixar Excel</button>
+      </div>
+    </div>
+    <table id="tabela">
+      <thead><tr><th>ID</th><th>Nome completo</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+  let funcionarios = [];
+  let geradoEm = null;
+
+  const campoSenha = document.getElementById('senha');
+  const botaoGerar = document.getElementById('botao-gerar');
+  const areaErro = document.getElementById('area-erro');
+  const painelResultado = document.getElementById('painel-resultado');
+  const campoBusca = document.getElementById('busca');
+
+  try { campoSenha.value = sessionStorage.getItem('senha_bizneo') || ''; } catch (_) {}
+
+  function escaparHtml(texto) {
+    const div = document.createElement('div');
+    div.textContent = texto == null ? '' : String(texto);
+    return div.innerHTML;
+  }
+
+  function mostrarErro(mensagem) {
+    areaErro.innerHTML = mensagem ? `<div class="erro">${escaparHtml(mensagem)}</div>` : '';
+  }
+
+  function listaFiltrada() {
+    const termo = campoBusca.value.trim().toLowerCase();
+    if (!termo) return funcionarios;
+    return funcionarios.filter((f) => f.id.toLowerCase().includes(termo) || f.nome.toLowerCase().includes(termo));
+  }
+
+  function renderizar() {
+    const lista = listaFiltrada();
+    document.getElementById('total-ativos').textContent = String(funcionarios.length);
+    document.getElementById('info-geracao').textContent = geradoEm
+      ? `Gerado em ${new Date(geradoEm).toLocaleString('pt-BR')}` + (lista.length !== funcionarios.length ? ` · exibindo ${lista.length}` : '')
+      : '';
+    document.querySelector('#tabela tbody').innerHTML = lista
+      .map((f) => `<tr><td>${escaparHtml(f.id)}</td><td>${escaparHtml(f.nome)}</td></tr>`)
+      .join('');
+  }
+
+  async function gerar() {
+    mostrarErro('');
+    const senha = campoSenha.value;
+    if (!senha) { mostrarErro('Informe a senha de acesso.'); return; }
+
+    botaoGerar.disabled = true;
+    botaoGerar.textContent = 'Buscando...';
+    try {
+      const resp = await fetch('/.netlify/functions/funcionarios-ativos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senha }),
+      });
+      const dados = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status} ao gerar o relatório.`);
+
+      try { sessionStorage.setItem('senha_bizneo', senha); } catch (_) {}
+      funcionarios = dados.funcionarios || [];
+      geradoEm = dados.geradoEm;
+      painelResultado.style.display = 'block';
+      renderizar();
+    } catch (erro) {
+      mostrarErro(erro.message);
+    } finally {
+      botaoGerar.disabled = false;
+      botaoGerar.textContent = 'Gerar relatório';
+    }
+  }
+
+  function nomeArquivo(extensao) {
+    const hoje = new Date().toISOString().slice(0, 10);
+    return `funcionarios-ativos-${hoje}.${extensao}`;
+  }
+
+  function baixarCsv() {
+    // Ponto e vírgula + BOM para o Excel em português abrir com acentos corretos.
+    const celula = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    const linhas = [['ID', 'Nome completo'], ...listaFiltrada().map((f) => [f.id, f.nome])];
+    const csv = '﻿' + linhas.map((l) => l.map(celula).join(';')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = nomeArquivo('csv'); a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function baixarXlsx() {
+    const dados = listaFiltrada().map((f) => ({ ID: f.id, 'Nome completo': f.nome }));
+    const planilha = XLSX.utils.json_to_sheet(dados, { header: ['ID', 'Nome completo'] });
+    planilha['!cols'] = [{ wch: 14 }, { wch: 48 }];
+    const pasta = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(pasta, planilha, 'Ativos');
+    XLSX.writeFile(pasta, nomeArquivo('xlsx'));
+  }
+
+  botaoGerar.addEventListener('click', gerar);
+  campoSenha.addEventListener('keydown', (e) => { if (e.key === 'Enter') gerar(); });
+  campoBusca.addEventListener('input', renderizar);
+  document.getElementById('botao-csv').addEventListener('click', baixarCsv);
+  document.getElementById('botao-xlsx').addEventListener('click', baixarXlsx);
+</script>
+</body>
+</html>
