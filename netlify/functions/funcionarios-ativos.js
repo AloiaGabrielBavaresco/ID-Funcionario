@@ -252,6 +252,9 @@ exports.handler = async (event) => {
       });
     }
 
+    if (!corpo.acao) {
+      return resposta(400, { erro: 'Página desatualizada: substitua o index.html do repositório pela versão nova e atualize a página (Ctrl+F5).' });
+    }
     return resposta(400, { erro: 'Ação inválida.' });
   } catch (erro) {
     console.error('Falha ao consultar a Bizneo:', erro.message);
