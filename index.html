@@ -44,7 +44,8 @@
       </div>
       <button class="primario" id="botao-gerar">Gerar relatório</button>
     </div>
-    <p class="mudo" style="margin:12px 0 0;">Busca na Bizneo os funcionários ativos e mostra o ID e o nome completo de cada um.</p>
+    <p class="mudo" style="margin:12px 0 0;">Busca na Bizneo os funcionários ativos e mostra o ID, o nome completo e o departamento de cada um.</p>
+    <div id="progresso" class="mudo" style="margin-top:10px;"></div>
     <div id="area-erro"></div>
   </div>
 
@@ -110,6 +111,37 @@
       .join('');
   }
 
+  const TAMANHO_LOTE = 20;
+
+  async function chamar(senha, corpo) {
+    const resp = await fetch('/.netlify/functions/funcionarios-ativos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ senha, ...corpo }),
+    });
+    const dados = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      if (resp.status === 404) throw new Error('Erro 404: a function não foi encontrada no Netlify (confira a pasta netlify/functions no repositório).');
+      throw new Error(dados.erro || `Erro ${resp.status} ao gerar o relatório.`);
+    }
+    return dados;
+  }
+
+  // Busca os detalhes (nome completo + departamento) em lotes, com progresso.
+  async function buscarDetalhes(senha, ids, aoProgredir) {
+    const porId = new Map();
+    const falhas = [];
+    for (let i = 0; i < ids.length; i += TAMANHO_LOTE) {
+      const lote = ids.slice(i, i + TAMANHO_LOTE);
+      const dados = await chamar(senha, { acao: 'detalhes', ids: lote });
+      for (const d of dados.detalhes) {
+        if (d.falhou) falhas.push(d.id); else porId.set(d.id, d);
+      }
+      aoProgredir(Math.min(i + TAMANHO_LOTE, ids.length));
+    }
+    return { porId, falhas };
+  }
+
   async function gerar() {
     mostrarErro('');
     const senha = campoSenha.value;
@@ -117,21 +149,43 @@
 
     botaoGerar.disabled = true;
     botaoGerar.textContent = 'Buscando...';
+    const progresso = document.getElementById('progresso');
     try {
-      const resp = await fetch('/.netlify/functions/funcionarios-ativos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ senha }),
-      });
-      const dados = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(dados.erro || `Erro ${resp.status} ao gerar o relatório.`);
-
+      progresso.textContent = 'Listando funcionários ativos...';
+      const lista = await chamar(senha, { acao: 'lista' });
       try { sessionStorage.setItem('senha_bizneo', senha); } catch (_) {}
-      funcionarios = dados.funcionarios || [];
-      geradoEm = dados.geradoEm;
+
+      const ids = lista.ativos.map((a) => a.id);
+      const total = ids.length;
+      const aoProgredir = (feitos) => { progresso.textContent = `Buscando nome completo e departamento: ${feitos} de ${total}`; };
+      aoProgredir(0);
+
+      let { porId, falhas } = await buscarDetalhes(senha, ids, aoProgredir);
+      if (falhas.length) {
+        progresso.textContent = `Repetindo ${falhas.length} consulta(s) que falharam...`;
+        const segunda = await buscarDetalhes(senha, falhas, () => {});
+        segunda.porId.forEach((v, k) => porId.set(k, v));
+        falhas = segunda.falhas;
+      }
+
+      funcionarios = lista.ativos
+        .map((a) => {
+          const d = porId.get(a.id);
+          return { id: a.id, nome: (d && d.nome) || a.nome, departamento: (d && d.departamento) || '' };
+        })
+        .sort((x, y) => x.nome.localeCompare(y.nome, 'pt-BR'));
+      geradoEm = lista.geradoEm;
+
+      const semDepto = funcionarios.filter((f) => !f.departamento).length;
+      const avisos = [];
+      if (falhas.length) avisos.push(`${falhas.length} funcionário(s) sem detalhe (aparecem com o nome da lista e sem departamento)`);
+      if (semDepto && semDepto !== falhas.length) avisos.push(`${semDepto - falhas.length} sem departamento cadastrado`);
+      progresso.textContent = avisos.length ? 'Atenção: ' + avisos.join('; ') + '.' : '';
+
       painelResultado.style.display = 'block';
       renderizar();
     } catch (erro) {
+      progresso.textContent = '';
       mostrarErro(erro.message);
     } finally {
       botaoGerar.disabled = false;
