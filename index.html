@@ -61,7 +61,7 @@
       </div>
     </div>
     <table id="tabela">
-      <thead><tr><th>ID</th><th>Nome completo</th></tr></thead>
+      <thead><tr><th>ID</th><th>Nome completo</th><th>Departamento</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
@@ -93,7 +93,10 @@
   function listaFiltrada() {
     const termo = campoBusca.value.trim().toLowerCase();
     if (!termo) return funcionarios;
-    return funcionarios.filter((f) => f.id.toLowerCase().includes(termo) || f.nome.toLowerCase().includes(termo));
+    return funcionarios.filter((f) =>
+      f.id.toLowerCase().includes(termo) ||
+      f.nome.toLowerCase().includes(termo) ||
+      (f.departamento || '').toLowerCase().includes(termo));
   }
 
   function renderizar() {
@@ -103,7 +106,7 @@
       ? `Gerado em ${new Date(geradoEm).toLocaleString('pt-BR')}` + (lista.length !== funcionarios.length ? ` · exibindo ${lista.length}` : '')
       : '';
     document.querySelector('#tabela tbody').innerHTML = lista
-      .map((f) => `<tr><td>${escaparHtml(f.id)}</td><td>${escaparHtml(f.nome)}</td></tr>`)
+      .map((f) => `<tr><td>${escaparHtml(f.id)}</td><td>${escaparHtml(f.nome)}</td><td>${escaparHtml(f.departamento || '—')}</td></tr>`)
       .join('');
   }
 
@@ -144,7 +147,7 @@
   function baixarCsv() {
     // Ponto e vírgula + BOM para o Excel em português abrir com acentos corretos.
     const celula = (v) => `"${String(v).replace(/"/g, '""')}"`;
-    const linhas = [['ID', 'Nome completo'], ...listaFiltrada().map((f) => [f.id, f.nome])];
+    const linhas = [['ID', 'Nome completo', 'Departamento'], ...listaFiltrada().map((f) => [f.id, f.nome, f.departamento || ''])];
     const csv = '﻿' + linhas.map((l) => l.map(celula).join(';')).join('\r\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const a = document.createElement('a');
@@ -153,9 +156,9 @@
   }
 
   function baixarXlsx() {
-    const dados = listaFiltrada().map((f) => ({ ID: f.id, 'Nome completo': f.nome }));
-    const planilha = XLSX.utils.json_to_sheet(dados, { header: ['ID', 'Nome completo'] });
-    planilha['!cols'] = [{ wch: 14 }, { wch: 48 }];
+    const dados = listaFiltrada().map((f) => ({ ID: f.id, 'Nome completo': f.nome, Departamento: f.departamento || '' }));
+    const planilha = XLSX.utils.json_to_sheet(dados, { header: ['ID', 'Nome completo', 'Departamento'] });
+    planilha['!cols'] = [{ wch: 14 }, { wch: 48 }, { wch: 32 }];
     const pasta = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(pasta, planilha, 'Ativos');
     XLSX.writeFile(pasta, nomeArquivo('xlsx'));
